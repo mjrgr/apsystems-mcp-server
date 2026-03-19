@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>APsystems Solar Dashboard</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,500;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0a0e17;--surface:#111827;--surface2:#1e293b;--border:#1e293b;
+  --text:#e2e8f0;--text2:#94a3b8;--accent:#f59e0b;--accent2:#fbbf24;
+  --green:#10b981;--red:#ef4444;--blue:#3b82f6;
+  --radius:12px;--font:'DM Sans',system-ui,sans-serif;--mono:'JetBrains Mono',monospace;
+}
+html{font-family:var(--font);background:var(--bg);color:var(--text);font-size:15px;line-height:1.6}
+body{min-height:100vh;overflow-x:hidden}
+
+/* ── Noise overlay ── */
+body::before{
+  content:'';position:fixed;inset:0;z-index:9999;pointer-events:none;
+  background:url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
+  opacity:.4;
+}
+
+/* ── Header ── */
+header{
+  padding:1.5rem 2rem;display:flex;align-items:center;gap:1rem;
+  border-bottom:1px solid var(--border);backdrop-filter:blur(12px);
+  position:sticky;top:0;z-index:100;background:rgba(10,14,23,.85);
+}
+header .logo{
+  width:36px;height:36px;border-radius:10px;
+  background:linear-gradient(135deg,var(--accent),#ef4444);
+  display:grid;place-items:center;font-weight:700;font-size:1.1rem;color:#000;
+}
+header h1{font-size:1.15rem;font-weight:700;letter-spacing:-.02em}
+header .tag{
+  font-family:var(--mono);font-size:.7rem;padding:.2rem .6rem;
+  border-radius:999px;background:var(--surface2);color:var(--accent);
+  border:1px solid rgba(245,158,11,.2);
+}
+
+/* ── Main layout ── */
+main{max-width:1200px;margin:0 auto;padding:2rem}
+
+/* ── Connect form ── */
+.connect{
+  background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
+  padding:2rem;margin-bottom:2rem;
+}
+.connect h2{font-size:1rem;font-weight:500;margin-bottom:1rem;color:var(--text2)}
+.connect .row{display:flex;gap:.75rem;flex-wrap:wrap}
+.connect input{
+  flex:1;min-width:200px;padding:.65rem 1rem;border-radius:8px;
+  border:1px solid var(--border);background:var(--bg);color:var(--text);
+  font-family:var(--mono);font-size:.85rem;outline:none;transition:border-color .2s;
+}
+.connect input:focus{border-color:var(--accent)}
+.connect input::placeholder{color:var(--text2)}
+.connect button{
+  padding:.65rem 1.5rem;border-radius:8px;border:none;cursor:pointer;
+  background:linear-gradient(135deg,var(--accent),#d97706);color:#000;
+  font-weight:600;font-size:.85rem;transition:transform .15s,box-shadow .15s;
+}
+.connect button:hover{transform:translateY(-1px);box-shadow:0 4px 20px rgba(245,158,11,.3)}
+.connect button:disabled{opacity:.5;cursor:not-allowed;transform:none;box-shadow:none}
+
+/* ── Status indicator ── */
+.status{
+  display:inline-flex;align-items:center;gap:.4rem;font-size:.8rem;
+  color:var(--text2);margin-top:.75rem;
+}
+.status .dot{width:8px;height:8px;border-radius:50%}
+.status .dot.green{background:var(--green);box-shadow:0 0 8px rgba(16,185,129,.5)}
+.status .dot.yellow{background:var(--accent);box-shadow:0 0 8px rgba(245,158,11,.5)}
+.status .dot.red{background:var(--red);box-shadow:0 0 8px rgba(239,68,68,.5)}
+.status .dot.grey{background:#6b7280}
+
+/* ── Cards ── */
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:1rem;margin-bottom:2rem}
+.card{
+  background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
+  padding:1.5rem;position:relative;overflow:hidden;
+}
+.card::before{
+  content:'';position:absolute;top:0;left:0;right:0;height:3px;
+  background:linear-gradient(90deg,var(--accent),var(--green));
+}
+.card .label{font-size:.75rem;color:var(--text2);text-transform:uppercase;letter-spacing:.08em;margin-bottom:.5rem}
+.card .value{font-size:1.8rem;font-weight:700;font-family:var(--mono);letter-spacing:-.03em}
+.card .unit{font-size:.85rem;font-weight:400;color:var(--text2);margin-left:.25rem}
+
+/* ── Sections ── */
+.section{
+  background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
+  padding:1.5rem;margin-bottom:1.5rem;
+}
+.section h3{font-size:.95rem;font-weight:600;margin-bottom:1rem;display:flex;align-items:center;gap:.5rem}
+.section h3 .icon{
+  width:28px;height:28px;border-radius:8px;display:grid;place-items:center;font-size:.85rem;
+}
+
+/* ── Inverter table ── */
+table{width:100%;border-collapse:collapse}
+th{text-align:left;font-size:.7rem;text-transform:uppercase;letter-spacing:.08em;color:var(--text2);padding:.75rem .5rem;border-bottom:1px solid var(--border)}
+td{padding:.65rem .5rem;border-bottom:1px solid rgba(30,41,59,.5);font-family:var(--mono);font-size:.85rem}
+tr:hover td{background:rgba(245,158,11,.03)}
+
+/* ── Chart area ── */
+.chart-wrap{position:relative;height:280px;margin-top:1rem}
+.chart-wrap canvas{width:100%!important;height:100%!important}
+
+/* ── Tabs ── */
+.tabs{display:flex;gap:.25rem;margin-bottom:1rem;flex-wrap:wrap}
+.tabs button{
+  padding:.4rem 1rem;border-radius:6px;border:1px solid var(--border);
+  background:transparent;color:var(--text2);font-size:.78rem;cursor:pointer;
+  font-family:var(--font);transition:all .15s;
+}
+.tabs button.active{background:var(--accent);color:#000;border-color:var(--accent);font-weight:600}
+.tabs button:hover:not(.active){border-color:var(--text2)}
+
+/* ── Empty / loading states ── */
+.empty{text-align:center;padding:4rem 2rem;color:var(--text2)}
+.empty .sun{font-size:3rem;margin-bottom:1rem;filter:grayscale(.5)}
+.loading{text-align:center;padding:2rem;color:var(--text2);font-style:italic}
+.error-msg{color:var(--red);font-size:.85rem;margin-top:.5rem}
+
+/* ── Animations ── */
+@keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+.fade-in{animation:fadeIn .4s ease-out both}
+
+/* ── Responsive ── */
+@media(max-width:640px){
+  main{padding:1rem}
+  .cards{grid-template-columns:1fr 1fr}
+  .card .value{font-size:1.4rem}
+}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">☀</div>
+  <h1>APsystems Solar Dashboard</h1>
+  <span class="tag">MCP Server</span>
+</header>
+
+<main>
+  <div class="connect">
+    <h2>Connect to your solar system</h2>
+    <div class="row">
+      <input id="sid-input" type="text" value="##SID##" placeholder="System ID (e.g. D123456789)" />
+      <button id="connect-btn" onclick="loadSystem()">Load System</button>
+    </div>
+    <div id="status-bar"></div>
+    <div id="error-bar" class="error-msg"></div>
+  </div>
+
+  <div id="dashboard-content">
+    <div class="empty">
+      <div class="sun">🌞</div>
+      <p>Enter your System ID above to view your solar production data.</p>
+    </div>
+  </div>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script>
+const API = '';
+let currentSid = '';
+let energyChart = null;
+
+async function api(path) {
+  const res = await fetch(API + path);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || 'API request failed: ' + res.status);
+  }
+  return res.json();
+}
+
+async function loadSystem() {
+  const sid = document.getElementById('sid-input').value.trim();
+  if (!sid) return;
+  currentSid = sid;
+  const btn = document.getElementById('connect-btn');
+  const errBar = document.getElementById('error-bar');
+  btn.disabled = true;
+  btn.textContent = 'Loading...';
+  errBar.textContent = '';
+
+  try {
+    const [details, summary, inverters] = await Promise.all([
+      api('/api/system/' + sid),
+      api('/api/system/' + sid + '/summary'),
+      api('/api/system/' + sid + '/inverters'),
+    ]);
+    renderDashboard(details, summary, inverters);
+    loadEnergyChart('daily');
+  } catch (e) {
+    errBar.textContent = e.message;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Load System';
+  }
+}
+
+function lightColor(light) {
+  return {1:'green',2:'yellow',3:'red',4:'grey'}[light]||'grey';
+}
+
+function lightLabel(light) {
+  return {1:'System OK',2:'Warnings',3:'Connection Issue',4:'No Data'}[light]||'Unknown';
+}
+
+function renderDashboard(details, summary, inverters) {
+  const c = lightColor(details.light);
+  document.getElementById('status-bar').innerHTML =
+    '<div class="status"><span class="dot ' + c + '"></span>' + lightLabel(details.light) +
+    ' &middot; ' + details.timezone + ' &middot; Capacity: ' + details.capacity + ' kW</div>';
+
+  let html = '';
+
+  // ── Summary cards ──
+  html += '<div class="cards fade-in">';
+  html += card('Today', summary.today, 'kWh');
+  html += card('This Month', summary.month, 'kWh');
+  html += card('This Year', summary.year, 'kWh');
+  html += card('Lifetime', summary.lifetime, 'kWh');
+  html += '</div>';
+
+  // ── Energy chart ──
+  html += '<div class="section fade-in">';
+  html += '<h3><span class="icon" style="background:rgba(245,158,11,.15);color:var(--accent)">⚡</span>Energy Production</h3>';
+  html += '<div class="tabs" id="energy-tabs">';
+  ['hourly','daily','monthly','yearly'].forEach(l => {
+    html += '<button onclick="loadEnergyChart(\'' + l + '\')" ' + (l==='daily'?'class="active"':'') + '>' + l.charAt(0).toUpperCase()+l.slice(1) + '</button>';
+  });
+  html += '</div>';
+  html += '<div class="chart-wrap"><canvas id="energy-canvas"></canvas></div>';
+  html += '</div>';
+
+  // ── Inverters ──
+  if (inverters && inverters.length) {
+    html += '<div class="section fade-in">';
+    html += '<h3><span class="icon" style="background:rgba(59,130,246,.15);color:var(--blue)">🔌</span>Devices</h3>';
+    inverters.forEach(ecu => {
+      html += '<p style="font-size:.8rem;color:var(--text2);margin-bottom:.5rem">ECU: <span style="font-family:var(--mono);color:var(--text)">' + ecu.eid + '</span>';
+      html += ' &middot; Type: ' + (['ECU','ECU+Meter','ECU+Storage'][ecu.type]||'ECU') + '</p>';
+      if (ecu.inverter && ecu.inverter.length) {
+        html += '<table><thead><tr><th>Inverter ID</th><th>Model</th></tr></thead><tbody>';
+        ecu.inverter.forEach(inv => {
+          html += '<tr><td>' + inv.uid + '</td><td>' + inv.type + '</td></tr>';
+        });
+        html += '</tbody></table>';
+      }
+    });
+    html += '</div>';
+  }
+
+  // ── System info ──
+  html += '<div class="section fade-in">';
+  html += '<h3><span class="icon" style="background:rgba(16,185,129,.15);color:var(--green)">ℹ️</span>System Information</h3>';
+  html += '<table><tbody>';
+  html += '<tr><td style="color:var(--text2)">System ID</td><td>' + details.sid + '</td></tr>';
+  html += '<tr><td style="color:var(--text2)">Created</td><td>' + details.create_date + '</td></tr>';
+  html += '<tr><td style="color:var(--text2)">Type</td><td>' + (['','PV System','Storage','PV & Storage'][details.type]||'Unknown') + '</td></tr>';
+  html += '<tr><td style="color:var(--text2)">ECUs</td><td>' + (details.ecu||[]).join(', ') + '</td></tr>';
+  html += '</tbody></table>';
+  html += '</div>';
+
+  document.getElementById('dashboard-content').innerHTML = html;
+}
+
+function card(label, value, unit) {
+  return '<div class="card"><div class="label">' + label + '</div><div class="value">' + (value||'—') + '<span class="unit">' + unit + '</span></div></div>';
+}
+
+async function loadEnergyChart(level) {
+  if (!currentSid) return;
+  // Update active tab
+  document.querySelectorAll('#energy-tabs button').forEach(b => {
+    b.classList.toggle('active', b.textContent.toLowerCase() === level);
+  });
+
+  // Build date_range
+  const now = new Date();
+  let dr = '';
+  if (level === 'hourly') dr = now.toISOString().slice(0,10);
+  else if (level === 'daily') dr = now.toISOString().slice(0,7);
+  else if (level === 'monthly') dr = '' + now.getFullYear();
+
+  try {
+    const data = await api('/api/system/' + currentSid + '/energy?energy_level=' + level + (dr ? '&date_range=' + dr : ''));
+    renderChart(data, level);
+  } catch (e) {
+    console.error('Chart load error:', e);
+  }
+}
+
+function renderChart(data, level) {
+  const canvas = document.getElementById('energy-canvas');
+  if (!canvas) return;
+  if (energyChart) energyChart.destroy();
+
+  let labels = [];
+  let values = [];
+
+  if (Array.isArray(data)) {
+    values = data.map(v => parseFloat(v) || 0);
+    if (level === 'hourly') labels = Array.from({length:24}, (_, i) => i + ':00');
+    else if (level === 'monthly') labels = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    else labels = data.map((_, i) => '' + (i + 1));
+  }
+
+  energyChart = new Chart(canvas, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [{
+        label: 'Energy (kWh)',
+        data: values,
+        backgroundColor: 'rgba(245,158,11,0.6)',
+        borderColor: 'rgba(245,158,11,1)',
+        borderWidth: 1,
+        borderRadius: 4,
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: '#1e293b',
+          titleColor: '#e2e8f0',
+          bodyColor: '#e2e8f0',
+          borderColor: '#334155',
+          borderWidth: 1,
+          callbacks: {
+            label: ctx => ctx.parsed.y.toFixed(2) + ' kWh'
+          }
+        }
+      },
+      scales: {
+        x: {
+          grid: { color: 'rgba(30,41,59,0.5)' },
+          ticks: { color: '#94a3b8', font: { size: 11 } }
+        },
+        y: {
+          grid: { color: 'rgba(30,41,59,0.5)' },
+          ticks: { color: '#94a3b8', font: { size: 11 }, callback: v => v + ' kWh' },
+          beginAtZero: true
+        }
+      }
+    }
+  });
+}
+</script>
+</body>
+</html>

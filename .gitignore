@@ -1,0 +1,28 @@
+# Binaries
+apsystems-mcp
+apsystems-mcp-*
+*.exe
+
+# Go
+vendor/
+
+# IDE
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.local
+
+# Test output
+coverage.out
+coverage.html
+
+# Build
+dist/
