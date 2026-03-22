@@ -8,4 +8,3 @@ sudo apt install -y podman zsh curl git vim
 sudo bash -c 'echo "vscode:10000:55537" > /etc/subuid && echo "vscode:10000:55537" > /etc/subgid'
 podman system migrate
 go mod download
-git config --global core.editor "vim"

@@ -6,11 +6,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"os"
 
-	"github.com/apsystems/mcp-server/internal/api"
 	mcplib "github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
+	"github.com/mjrgr/apsystems-mcp-server/internal/api"
 )
 
 // Server wraps the MCP server and the APsystems API client.
@@ -18,10 +17,11 @@ type Server struct {
 	mcp    *server.MCPServer
 	client *api.Client
 	logger *slog.Logger
+	sysID  string
 }
 
-// NewServer creates a new MCP server with all APsystems tools registered.
-func NewServer(client *api.Client, logger *slog.Logger) *Server {
+// New creates a new MCP server with all APsystems tools registered.
+func New(client *api.Client, logger *slog.Logger, sysID string) *Server {
 	s := &Server{
 		mcp: server.NewMCPServer(
 			"APsystems Solar Monitor",
@@ -30,14 +30,37 @@ func NewServer(client *api.Client, logger *slog.Logger) *Server {
 		),
 		client: client,
 		logger: logger,
+		sysID:  sysID,
 	}
 	s.registerTools()
 	return s
 }
 
-// MCPServer returns the underlying MCP server for transport binding.
-func (s *Server) MCPServer() *server.MCPServer {
-	return s.mcp
+// ServeSSE starts the MCP server over HTTP with Server-Sent Events.
+func (s *Server) ServeSSE(ctx context.Context, addr string) error {
+	s.logger.Info("starting MCP server", "transport", "sse", "addr", addr)
+
+	sseServer := server.NewSSEServer(s.mcp,
+		server.WithBaseURL(fmt.Sprintf("http://%s", addr)),
+	)
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- sseServer.Start(addr)
+	}()
+
+	select {
+	case <-ctx.Done():
+		return sseServer.Shutdown(ctx)
+	case err := <-errCh:
+		return err
+	}
+}
+
+// ServeStdio starts the MCP server over stdio.
+func (s *Server) ServeStdio(_ context.Context) error {
+	s.logger.Info("starting MCP server on stdio")
+	return server.ServeStdio(s.mcp)
 }
 
 // registerTools adds all APsystems tool definitions.
@@ -425,7 +448,7 @@ func (s *Server) registerTools() {
 // ─── Handler implementations ────────────────────────────────────────────────
 
 func (s *Server) handleGetSystemDetails(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
-	sid, err := requireString(req, "sid")
+	sid, err := requireString(req, "sid", s.sysID)
 	if err != nil {
 		return errResult(err), nil
 	}
@@ -437,7 +460,7 @@ func (s *Server) handleGetSystemDetails(ctx context.Context, req mcplib.CallTool
 }
 
 func (s *Server) handleGetInverters(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
-	sid, err := requireString(req, "sid")
+	sid, err := requireString(req, "sid", s.sysID)
 	if err != nil {
 		return errResult(err), nil
 	}
@@ -449,7 +472,7 @@ func (s *Server) handleGetInverters(ctx context.Context, req mcplib.CallToolRequ
 }
 
 func (s *Server) handleGetMeters(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
-	sid, err := requireString(req, "sid")
+	sid, err := requireString(req, "sid", s.sysID)
 	if err != nil {
 		return errResult(err), nil
 	}
@@ -461,7 +484,7 @@ func (s *Server) handleGetMeters(ctx context.Context, req mcplib.CallToolRequest
 }
 
 func (s *Server) handleGetSystemSummary(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
-	sid, err := requireString(req, "sid")
+	sid, err := requireString(req, "sid", s.sysID)
 	if err != nil {
 		return errResult(err), nil
 	}
@@ -473,11 +496,11 @@ func (s *Server) handleGetSystemSummary(ctx context.Context, req mcplib.CallTool
 }
 
 func (s *Server) handleGetSystemEnergy(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
-	sid, err := requireString(req, "sid")
+	sid, err := requireString(req, "sid", s.sysID)
 	if err != nil {
 		return errResult(err), nil
 	}
-	level, err := requireString(req, "energy_level")
+	level, err := requireString(req, "energy_level", "")
 	if err != nil {
 		return errResult(err), nil
 	}
@@ -491,11 +514,11 @@ func (s *Server) handleGetSystemEnergy(ctx context.Context, req mcplib.CallToolR
 }
 
 func (s *Server) handleGetECUSummary(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
-	sid, err := requireString(req, "sid")
+	sid, err := requireString(req, "sid", s.sysID)
 	if err != nil {
 		return errResult(err), nil
 	}
-	eid, err := requireString(req, "eid")
+	eid, err := requireString(req, "eid", "")
 	if err != nil {
 		return errResult(err), nil
 	}
@@ -507,15 +530,15 @@ func (s *Server) handleGetECUSummary(ctx context.Context, req mcplib.CallToolReq
 }
 
 func (s *Server) handleGetECUEnergy(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
-	sid, err := requireString(req, "sid")
+	sid, err := requireString(req, "sid", s.sysID)
 	if err != nil {
 		return errResult(err), nil
 	}
-	eid, err := requireString(req, "eid")
+	eid, err := requireString(req, "eid", "")
 	if err != nil {
 		return errResult(err), nil
 	}
-	level, err := requireString(req, "energy_level")
+	level, err := requireString(req, "energy_level", "")
 	if err != nil {
 		return errResult(err), nil
 	}
@@ -529,11 +552,11 @@ func (s *Server) handleGetECUEnergy(ctx context.Context, req mcplib.CallToolRequ
 }
 
 func (s *Server) handleGetInverterSummary(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
-	sid, err := requireString(req, "sid")
+	sid, err := requireString(req, "sid", s.sysID)
 	if err != nil {
 		return errResult(err), nil
 	}
-	uid, err := requireString(req, "uid")
+	uid, err := requireString(req, "uid", "")
 	if err != nil {
 		return errResult(err), nil
 	}
@@ -545,15 +568,15 @@ func (s *Server) handleGetInverterSummary(ctx context.Context, req mcplib.CallTo
 }
 
 func (s *Server) handleGetInverterEnergy(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
-	sid, err := requireString(req, "sid")
+	sid, err := requireString(req, "sid", s.sysID)
 	if err != nil {
 		return errResult(err), nil
 	}
-	uid, err := requireString(req, "uid")
+	uid, err := requireString(req, "uid", "")
 	if err != nil {
 		return errResult(err), nil
 	}
-	level, err := requireString(req, "energy_level")
+	level, err := requireString(req, "energy_level", "")
 	if err != nil {
 		return errResult(err), nil
 	}
@@ -567,19 +590,19 @@ func (s *Server) handleGetInverterEnergy(ctx context.Context, req mcplib.CallToo
 }
 
 func (s *Server) handleGetInverterBatchEnergy(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
-	sid, err := requireString(req, "sid")
+	sid, err := requireString(req, "sid", s.sysID)
 	if err != nil {
 		return errResult(err), nil
 	}
-	eid, err := requireString(req, "eid")
+	eid, err := requireString(req, "eid", "")
 	if err != nil {
 		return errResult(err), nil
 	}
-	level, err := requireString(req, "energy_level")
+	level, err := requireString(req, "energy_level", "")
 	if err != nil {
 		return errResult(err), nil
 	}
-	dateRange, err := requireString(req, "date_range")
+	dateRange, err := requireString(req, "date_range", "")
 	if err != nil {
 		return errResult(err), nil
 	}
@@ -592,11 +615,11 @@ func (s *Server) handleGetInverterBatchEnergy(ctx context.Context, req mcplib.Ca
 }
 
 func (s *Server) handleGetMeterSummary(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
-	sid, err := requireString(req, "sid")
+	sid, err := requireString(req, "sid", s.sysID)
 	if err != nil {
 		return errResult(err), nil
 	}
-	eid, err := requireString(req, "eid")
+	eid, err := requireString(req, "eid", "")
 	if err != nil {
 		return errResult(err), nil
 	}
@@ -608,15 +631,15 @@ func (s *Server) handleGetMeterSummary(ctx context.Context, req mcplib.CallToolR
 }
 
 func (s *Server) handleGetMeterPeriod(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
-	sid, err := requireString(req, "sid")
+	sid, err := requireString(req, "sid", s.sysID)
 	if err != nil {
 		return errResult(err), nil
 	}
-	eid, err := requireString(req, "eid")
+	eid, err := requireString(req, "eid", "")
 	if err != nil {
 		return errResult(err), nil
 	}
-	level, err := requireString(req, "energy_level")
+	level, err := requireString(req, "energy_level", "")
 	if err != nil {
 		return errResult(err), nil
 	}
@@ -630,11 +653,11 @@ func (s *Server) handleGetMeterPeriod(ctx context.Context, req mcplib.CallToolRe
 }
 
 func (s *Server) handleGetStorageLatest(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
-	sid, err := requireString(req, "sid")
+	sid, err := requireString(req, "sid", s.sysID)
 	if err != nil {
 		return errResult(err), nil
 	}
-	eid, err := requireString(req, "eid")
+	eid, err := requireString(req, "eid", "")
 	if err != nil {
 		return errResult(err), nil
 	}
@@ -646,11 +669,11 @@ func (s *Server) handleGetStorageLatest(ctx context.Context, req mcplib.CallTool
 }
 
 func (s *Server) handleGetStorageSummary(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
-	sid, err := requireString(req, "sid")
+	sid, err := requireString(req, "sid", s.sysID)
 	if err != nil {
 		return errResult(err), nil
 	}
-	eid, err := requireString(req, "eid")
+	eid, err := requireString(req, "eid", "")
 	if err != nil {
 		return errResult(err), nil
 	}
@@ -662,15 +685,15 @@ func (s *Server) handleGetStorageSummary(ctx context.Context, req mcplib.CallToo
 }
 
 func (s *Server) handleGetStoragePeriod(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
-	sid, err := requireString(req, "sid")
+	sid, err := requireString(req, "sid", s.sysID)
 	if err != nil {
 		return errResult(err), nil
 	}
-	eid, err := requireString(req, "eid")
+	eid, err := requireString(req, "eid", "")
 	if err != nil {
 		return errResult(err), nil
 	}
-	level, err := requireString(req, "energy_level")
+	level, err := requireString(req, "energy_level", "")
 	if err != nil {
 		return errResult(err), nil
 	}
@@ -685,16 +708,12 @@ func (s *Server) handleGetStoragePeriod(ctx context.Context, req mcplib.CallTool
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
-func requireString(req mcplib.CallToolRequest, key string) (string, error) {
-	v, ok := req.Params.Arguments[key]
-	// Special case: allow 'sid' to be provided via APS_SYS_ID env var
-	if !ok && key == "sid" {
-		envSid := os.Getenv("APS_SYS_ID")
-		if envSid != "" {
-			return envSid, nil
-		}
-	}
+func requireString(req mcplib.CallToolRequest, key, fallback string) (string, error) {
+	v, ok := req.GetArguments()[key]
 	if !ok {
+		if fallback != "" {
+			return fallback, nil
+		}
 		return "", fmt.Errorf("missing required parameter: %s", key)
 	}
 	s, ok := v.(string)
@@ -705,7 +724,7 @@ func requireString(req mcplib.CallToolRequest, key string) (string, error) {
 }
 
 func optionalString(req mcplib.CallToolRequest, key string) string {
-	v, ok := req.Params.Arguments[key]
+	v, ok := req.GetArguments()[key]
 	if !ok {
 		return ""
 	}

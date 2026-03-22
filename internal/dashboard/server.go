@@ -9,138 +9,163 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
-	"os"
 	"strings"
+	"time"
 
-	"github.com/apsystems/mcp-server/internal/api"
+	"github.com/mjrgr/apsystems-mcp-server/internal/api"
 )
 
 //go:embed dashboard.html
-var dashboardHTML []byte
+var page []byte
 
-// Handler creates an http.Handler that serves the dashboard UI and
-// proxied API endpoints.
-func Handler(client *api.Client, logger *slog.Logger) http.Handler {
-	mux := http.NewServeMux()
-
-	// ── API proxy routes ──
-	mux.HandleFunc("GET /api/system/{sid}", func(w http.ResponseWriter, r *http.Request) {
-		sid := r.PathValue("sid")
-		data, err := client.GetSystemDetails(r.Context(), sid)
-		writeJSON(w, data, err)
-	})
-
-	mux.HandleFunc("GET /api/system/{sid}/summary", func(w http.ResponseWriter, r *http.Request) {
-		sid := r.PathValue("sid")
-		data, err := client.GetSystemSummary(r.Context(), sid)
-		writeJSON(w, data, err)
-	})
-
-	mux.HandleFunc("GET /api/system/{sid}/energy", func(w http.ResponseWriter, r *http.Request) {
-		sid := r.PathValue("sid")
-		level := r.URL.Query().Get("energy_level")
-		dateRange := r.URL.Query().Get("date_range")
-		if level == "" {
-			level = "daily"
-		}
-		data, err := client.GetSystemEnergy(r.Context(), sid, level, dateRange)
-		writeJSON(w, json.RawMessage(data), err)
-	})
-
-	mux.HandleFunc("GET /api/system/{sid}/inverters", func(w http.ResponseWriter, r *http.Request) {
-		sid := r.PathValue("sid")
-		data, err := client.GetSystemInverters(r.Context(), sid)
-		writeJSON(w, data, err)
-	})
-
-	mux.HandleFunc("GET /api/system/{sid}/ecu/{eid}/summary", func(w http.ResponseWriter, r *http.Request) {
-		sid := r.PathValue("sid")
-		eid := r.PathValue("eid")
-		data, err := client.GetECUSummary(r.Context(), sid, eid)
-		writeJSON(w, data, err)
-	})
-
-	mux.HandleFunc("GET /api/system/{sid}/ecu/{eid}/energy", func(w http.ResponseWriter, r *http.Request) {
-		sid := r.PathValue("sid")
-		eid := r.PathValue("eid")
-		level := r.URL.Query().Get("energy_level")
-		dateRange := r.URL.Query().Get("date_range")
-		if level == "" {
-			level = "daily"
-		}
-		data, err := client.GetECUEnergy(r.Context(), sid, eid, level, dateRange)
-		writeJSON(w, json.RawMessage(data), err)
-	})
-
-	mux.HandleFunc("GET /api/system/{sid}/storage/{eid}/latest", func(w http.ResponseWriter, r *http.Request) {
-		sid := r.PathValue("sid")
-		eid := r.PathValue("eid")
-		data, err := client.GetStorageLatest(r.Context(), sid, eid)
-		writeJSON(w, data, err)
-	})
-
-	// ── Health check ──
-	mux.HandleFunc("GET /api/health", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, map[string]string{"status": "ok"}, nil)
-	})
-
-	// ── Dashboard SPA ──
-	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		sid := os.Getenv("APS_SYS_ID")
-		html := strings.ReplaceAll(string(dashboardHTML), "##SID##", sid)
-		_, _ = w.Write([]byte(html))
-	})
-
-	return logMiddleware(logger, corsMiddleware(mux))
+// Server serves the web dashboard and proxies API requests to the APsystems client.
+type Server struct {
+	client *api.Client
+	logger *slog.Logger
+	mux    *http.ServeMux
+	sysID  string
 }
 
-// Serve starts the dashboard HTTP server. It blocks until ctx is cancelled.
-func Serve(ctx context.Context, addr string, client *api.Client, logger *slog.Logger) error {
+// New creates a dashboard Server and registers all routes.
+func New(client *api.Client, logger *slog.Logger, sysID string) *Server {
+	s := &Server{client: client, logger: logger, mux: http.NewServeMux(), sysID: sysID}
+	s.mux.HandleFunc("GET /", s.handlePage)
+	s.mux.HandleFunc("GET /api/health", s.handleHealth)
+	s.mux.HandleFunc("GET /api/config", s.handleConfig)
+	s.mux.HandleFunc("GET /api/system/{sid}", s.handleSystemDetails)
+	s.mux.HandleFunc("GET /api/system/{sid}/summary", s.handleSystemSummary)
+	s.mux.HandleFunc("GET /api/system/{sid}/energy", s.handleSystemEnergy)
+	s.mux.HandleFunc("GET /api/system/{sid}/inverters", s.handleSystemInverters)
+	s.mux.HandleFunc("GET /api/system/{sid}/ecu/{eid}/summary", s.handleECUSummary)
+	s.mux.HandleFunc("GET /api/system/{sid}/ecu/{eid}/energy", s.handleECUEnergy)
+	s.mux.HandleFunc("GET /api/system/{sid}/storage/{eid}/latest", s.handleStorageLatest)
+	return s
+}
+
+// Serve starts the HTTP server and blocks until ctx is cancelled.
+func (s *Server) Serve(ctx context.Context, addr string) error {
 	srv := &http.Server{
-		Addr:    addr,
-		Handler: Handler(client, logger),
+		Addr:              addr,
+		Handler:           s.mux,
+		ReadHeaderTimeout: 10 * time.Second,
 	}
+
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		return fmt.Errorf("dashboard listen %s: %w", addr, err)
+	}
+	s.logger.Info("dashboard listening", "addr", ln.Addr().String())
 
 	go func() {
 		<-ctx.Done()
-		srv.Close()
+		shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = srv.Shutdown(shutCtx)
 	}()
 
-	logger.Info("dashboard listening", "addr", addr)
-	if err := srv.ListenAndServe(); err != http.ErrServerClosed {
-		return fmt.Errorf("dashboard server: %w", err)
+	if err := srv.Serve(ln); err != nil && err != http.ErrServerClosed {
+		return err
 	}
 	return nil
 }
 
-func writeJSON(w http.ResponseWriter, data interface{}, err error) {
-	w.Header().Set("Content-Type", "application/json")
+func (s *Server) handlePage(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	html := strings.ReplaceAll(string(page), "##SID##", s.sysID)
+	_, _ = w.Write([]byte(html))
+}
+
+func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+func (s *Server) handleConfig(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]string{"sid": s.sysID})
+}
+
+func (s *Server) handleSystemDetails(w http.ResponseWriter, r *http.Request) {
+	data, err := s.client.GetSystemDetails(r.Context(), r.PathValue("sid"))
 	if err != nil {
-		w.WriteHeader(http.StatusBadGateway)
-		_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		writeError(w, err)
 		return
 	}
-	_ = json.NewEncoder(w).Encode(data)
+	writeJSON(w, http.StatusOK, data)
 }
 
-func corsMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
-		if r.Method == "OPTIONS" {
-			w.WriteHeader(http.StatusNoContent)
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
+func (s *Server) handleSystemSummary(w http.ResponseWriter, r *http.Request) {
+	data, err := s.client.GetSystemSummary(r.Context(), r.PathValue("sid"))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, data)
 }
 
-func logMiddleware(logger *slog.Logger, next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		logger.Debug("dashboard request", "method", r.Method, "path", r.URL.Path)
-		next.ServeHTTP(w, r)
-	})
+func (s *Server) handleSystemEnergy(w http.ResponseWriter, r *http.Request) {
+	level := r.URL.Query().Get("energy_level")
+	if level == "" {
+		level = "daily"
+	}
+	data, err := s.client.GetSystemEnergy(r.Context(), r.PathValue("sid"), level, r.URL.Query().Get("date_range"))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, json.RawMessage(data))
+}
+
+func (s *Server) handleSystemInverters(w http.ResponseWriter, r *http.Request) {
+	data, err := s.client.GetSystemInverters(r.Context(), r.PathValue("sid"))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, data)
+}
+
+func (s *Server) handleECUSummary(w http.ResponseWriter, r *http.Request) {
+	data, err := s.client.GetECUSummary(r.Context(), r.PathValue("sid"), r.PathValue("eid"))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, data)
+}
+
+func (s *Server) handleECUEnergy(w http.ResponseWriter, r *http.Request) {
+	level := r.URL.Query().Get("energy_level")
+	if level == "" {
+		level = "daily"
+	}
+	data, err := s.client.GetECUEnergy(r.Context(), r.PathValue("sid"), r.PathValue("eid"), level, r.URL.Query().Get("date_range"))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, json.RawMessage(data))
+}
+
+func (s *Server) handleStorageLatest(w http.ResponseWriter, r *http.Request) {
+	data, err := s.client.GetStorageLatest(r.Context(), r.PathValue("sid"), r.PathValue("eid"))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, data)
+}
+
+func writeJSON(w http.ResponseWriter, status int, v any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	enc := json.NewEncoder(w)
+	enc.SetIndent("", "  ")
+	_ = enc.Encode(v)
+}
+
+func writeError(w http.ResponseWriter, err error) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusBadGateway)
+	_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 }
