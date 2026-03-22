@@ -14,8 +14,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/apsystems/mcp-server/internal/auth"
-	"github.com/apsystems/mcp-server/internal/models"
+	"github.com/mjrgr/apsystems-mcp-server/internal/auth"
+	"github.com/mjrgr/apsystems-mcp-server/internal/models"
 )
 
 const (

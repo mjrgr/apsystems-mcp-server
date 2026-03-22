@@ -42,6 +42,7 @@ that wraps the APsystems OpenAPI, giving AI assistants like Claude direct access
 - **Built-in web dashboard** — dark-themed single-page app with Chart.js energy visualizations
 - **Rate limiting** — configurable request throttling to respect API limits
 - **Automatic retries** — exponential back-off on transient errors and rate-limit responses
+- **Dual transport** — stdio (default) or SSE over HTTP, selectable via environment variable
 - **Structured logging** — JSON logs via `slog` with configurable levels
 - **Podman support** — multi-stage Containerfile for minimal production images
 - **CI/CD** — GitHub Actions for testing, linting, and cross-platform releases
@@ -86,7 +87,7 @@ Before you get started, make sure you have:
 ### Install & Run
 
 ```bash
-git clone https://github.com/apsystems/mcp-server.git
+git clone https://github.com/mjrgr/apsystems-mcp-server.git
 cd mcp-server
 
 # Install dependencies
@@ -100,6 +101,21 @@ export APS_APP_SECRET="your_fake_secret12"
 # Build and run
 go run ./cmd/server
 ```
+
+### With SSE Transport
+
+By default the server uses **stdio** (standard input/output) for MCP communication.
+Set `APS_MCP_TRANSPORT=sse` to start an HTTP server with Server-Sent Events instead:
+
+```bash
+export APS_MCP_TRANSPORT=sse
+export APS_MCP_SSE_ADDR=:8888     # optional, defaults to :8888
+go run ./cmd/server
+# SSE endpoint: http://localhost:8888/sse
+# Message endpoint: http://localhost:8888/message
+```
+
+This is useful when you want to connect remote MCP clients over HTTP rather than running the server as a child process.
 
 ### With Dashboard
 
@@ -125,6 +141,21 @@ podman run --rm \
   apsystems-mcp
 ```
 
+To run with SSE transport instead of stdio:
+
+```bash
+podman run --rm \
+  -e APS_SYS_ID="your_fake_sid_1234567890" \
+  -e APS_APP_ID="your_fake_app_id_32charslong1234567890abcd" \
+  -e APS_APP_SECRET="your_fake_secret12" \
+  -e APS_MCP_TRANSPORT=sse \
+  -e APS_MCP_SSE_ADDR=:8888 \
+  -e APS_DASHBOARD=true \
+  -p 8888:8888 -p 8080:8080 \
+  apsystems-mcp
+# SSE endpoint: http://localhost:8888/sse
+```
+
 <p align="center">
   <img src="docs/screen_dashboard.png" width="600" alt="Dashboard Screenshot" />
 </p>
@@ -132,15 +163,17 @@ podman run --rm \
 
 ## Table of Environment Variables
 
-| Variable           | Required | Example Value                              | Description                                                      |
-|--------------------|----------|--------------------------------------------|------------------------------------------------------------------|
-| `APS_APP_ID`       | Yes      | `your_fake_app_id_32charslong1234567890abcd` | 32-character APsystems App ID                                    |
-| `APS_APP_SECRET`   | Yes      | `your_fake_secret12`                       | 12-character APsystems App Secret                                |
-| `APS_SYS_ID`       | Yes      | `your_fake_sid_1234567890`                 | System ID (SID) from EMA app, Settings → Account Details         |
-| `APS_BASE_URL`     | No       | `https://api.apsystemsema.com:9282`        | API base URL override                                            |
-| `APS_DASHBOARD`    | No       | `true`                                     | Set `true` to enable web dashboard                               |
-| `APS_DASH_ADDR`    | No       | `:8080`                                    | Dashboard listen address                                         |
-| `APS_LOG_LEVEL`    | No       | `info`                                     | Log level: debug, info, warn, error                              |
+| Variable            | Required | Example Value                              | Description                                                      |
+|---------------------|----------|--------------------------------------------|------------------------------------------------------------------|
+| `APS_APP_ID`        | Yes      | `your_fake_app_id_32charslong1234567890abcd` | 32-character APsystems App ID                                    |
+| `APS_APP_SECRET`    | Yes      | `your_fake_secret12`                       | 12-character APsystems App Secret                                |
+| `APS_SYS_ID`        | Yes      | `your_fake_sid_1234567890`                 | System ID (SID) from EMA app, Settings → Account Details         |
+| `APS_BASE_URL`      | No       | `https://api.apsystemsema.com:9282`        | API base URL override                                            |
+| `APS_MCP_TRANSPORT` | No       | `stdio`                                    | MCP transport: `stdio` (default) or `sse`                        |
+| `APS_MCP_SSE_ADDR`  | No       | `:8888`                                    | SSE server listen address (only when `APS_MCP_TRANSPORT=sse`)    |
+| `APS_DASHBOARD`     | No       | `true`                                     | Set `true` to enable web dashboard                               |
+| `APS_DASH_ADDR`     | No       | `:8080`                                    | Dashboard listen address                                         |
+| `APS_LOG_LEVEL`     | No       | `info`                                     | Log level: debug, info, warn, error                              |
 
 ## Security
 
@@ -158,6 +191,8 @@ podman run --rm \
 | `APS_APP_SECRET` | Yes | — | 12-character APsystems App Secret |
 | `APS_BASE_URL` | No | `https://api.apsystemsema.com:9282` | API base URL override |
 | `APS_SYS_ID` | No | — | Default system identifier (`sid`) for all API calls if not provided in tool arguments |
+| `APS_MCP_TRANSPORT` | No | `stdio` | MCP transport: `stdio` or `sse` |
+| `APS_MCP_SSE_ADDR` | No | `:8888` | SSE server listen address (only when transport is `sse`) |
 | `APS_DASHBOARD` | No | `false` | Set `true` to enable web dashboard |
 | `APS_DASH_ADDR` | No | `:8080` | Dashboard listen address |
 | `APS_LOG_LEVEL` | No | `info` | Log level: debug, info, warn, error |
@@ -274,10 +309,35 @@ To use Claude Desktop with Docker or Podman, update your `claude_desktop_config.
 
 ```json
 {
+  "inputs": [
+    {
+      "type": "promptString",
+      "id": "aps_sys_id",
+      "description": "APsystems System ID"
+    },
+    {
+      "type": "promptString",
+      "id": "aps_app_id",
+      "description": "APsystems App ID"
+    },
+    {
+      "type": "promptString",
+      "id": "aps_app_secret",
+      "description": "APsystems App Secret",
+      "password": true
+    }
+  ],
   "mcpServers": {
     "apsystems": {
-      "command": "podman run -i --rm -p 8888:8080 -e APS_DASHBOARD=true -e APS_SYS_ID=your_fake_sid_1234567890 -e APS_APP_ID=your_fake_app_id_32charslong1234567890abcd -e APS_APP_SECRET=your_fake_secret12 docker.io/mehdijrgr/apsystems-mcp-server 2>&1",
-      "env": {}
+      "command": "podman",
+      "args": [
+        "run", "-i", "--rm", "-p", "8888:8080",
+        "-e", "APS_DASHBOARD=true",
+        "-e", "APS_SYS_ID=${input:aps_sys_id}",
+        "-e", "APS_APP_ID=${input:aps_app_id}",
+        "-e", "APS_APP_SECRET=${input:aps_app_secret}",
+        "docker.io/mehdijrgr/apsystems-mcp-server"
+      ]
     }
   }
 }
@@ -287,10 +347,47 @@ Or for Docker:
 
 ```json
 {
+  "inputs": [
+    {
+      "type": "promptString",
+      "id": "aps_sys_id",
+      "description": "APsystems System ID"
+    },
+    {
+      "type": "promptString",
+      "id": "aps_app_id",
+      "description": "APsystems App ID"
+    },
+    {
+      "type": "promptString",
+      "id": "aps_app_secret",
+      "description": "APsystems App Secret",
+      "password": true
+    }
+  ],
   "mcpServers": {
     "apsystems": {
-      "command": "docker run -i --rm -p 8888:8080 -e APS_DASHBOARD=true -e APS_SYS_ID=your_fake_sid_1234567890 -e APS_APP_ID=your_fake_app_id_32charslong1234567890abcd -e APS_APP_SECRET=your_fake_secret12 docker.io/mehdijrgr/apsystems-mcp-server 2>&1",
-      "env": {}
+      "command": "docker",
+      "args": [
+        "run", "-i", "--rm", "-p", "8888:8080",
+        "-e", "APS_DASHBOARD=true",
+        "-e", "APS_SYS_ID=${input:aps_sys_id}",
+        "-e", "APS_APP_ID=${input:aps_app_id}",
+        "-e", "APS_APP_SECRET=${input:aps_app_secret}",
+        "docker.io/mehdijrgr/apsystems-mcp-server"
+      ]
+    }
+  }
+}
+```
+
+For SSE transport (remote/network mode), use the `url` field instead of `command`:
+
+```json
+{
+  "mcpServers": {
+    "apsystems": {
+      "url": "http://localhost:8888/sse"
     }
   }
 }
@@ -395,8 +492,8 @@ make build
 
 ## Community & Support
 
-- [GitHub Issues](https://github.com/apsystems/mcp-server/issues) — for bug reports and feature requests
-- [Discussions](https://github.com/apsystems/mcp-server/discussions) — for Q&A, ideas, and community help
+- [GitHub Issues](https://github.com/mjrgr/apsystems-mcp-server/issues) — for bug reports and feature requests
+- [Discussions](https://github.com/mjrgr/apsystems-mcp-server/discussions) — for Q&A, ideas, and community help
 - Email: support@apsystems.com (for API credential requests)
 
 ## Contributing

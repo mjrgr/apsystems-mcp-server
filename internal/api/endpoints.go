@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/apsystems/mcp-server/internal/models"
+	"github.com/mjrgr/apsystems-mcp-server/internal/models"
 )
 
 // ---------- System Details ----------

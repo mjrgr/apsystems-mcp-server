@@ -32,6 +32,6 @@ USER 1000:1000
 
 COPY --from=builder --chmod=0755 /apsystems-mcp-server /apsystems-mcp-server
 
-EXPOSE 8080
+EXPOSE 8080 8888
 
 ENTRYPOINT ["/apsystems-mcp-server"]

@@ -10,7 +10,9 @@
     "ghcr.io/devcontainers/features/common-utils:2": {
       "configureZshAsDefaultShell": true,
       "upgradePackages": true
-    }
+    },
+    "ghcr.io/guiyomh/features/vim:0": {},
+    "ghcr.io/guiyomh/features/golangci-lint:0": {}
   },
   "overrideFeatureInstallOrder": [
     "ghcr.io/devcontainers/features/common-utils:2"
@@ -24,8 +26,18 @@
   "mounts": [
     {
       "type": "bind",
+      "source": "${localEnv:HOME}/.claude",
+      "target": "/home/vscode/.claude"
+    },
+    {
+      "type": "bind",
       "source": "${localEnv:HOME}/.ssh",
       "target": "/home/vscode/.ssh"
+    },
+    {
+      "type": "bind",
+      "source": "${localEnv:HOME}/.gitconfig",
+      "target": "/home/vscode/.gitconfig"
     },
     {
       "type": "bind",
@@ -49,7 +61,6 @@
       "extensions": [
         "golang.go",
         "golangci-lint.vscode-golangci-lint",
-        "eamodio.gitlens",
         "ms-azuretools.vscode-containers",
         "ms-vscode.makefile-tools",
         "redhat.vscode-yaml",
@@ -58,7 +69,13 @@
         "bierner.markdown-mermaid",
         "george-alisson.html-preview-vscode",
         "DavidAnson.vscode-markdownlint",
-        "timonwong.shellcheck"
+        "timonwong.shellcheck",
+        "mads-hartmann.bash-ide-vscode",
+        "DavidAnson.vscode-markdownlint",
+        "yzhang.markdown-all-in-one",
+        "eamodio.gitlens",
+        "mhutchie.git-graph",
+        "usernamehw.errorlens"
       ],
       "settings": {
         "dev.containers.dockerPath": "podman",
@@ -78,7 +95,13 @@
     }
   },
   "forwardPorts": [
-    8080
+    8080,
+    8081,
+    8082,
+    8888,
+    9090,
+    9091,
+    9092
   ],
   "postCreateCommand": ".devcontainer/postCreate.sh",
   "remoteEnv": {
