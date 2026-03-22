@@ -18,7 +18,7 @@ flowchart LR
 	subgraph APIServer[APsystems OpenAPI]
 		C[REST API]
 	end
-	A -- JSON-RPC/stdio --> B1
+	A -- "JSON-RPC/stdio or SSE/HTTP" --> B1
 	B1 -- typed Go calls --> B2
 	B2 -- signed HTTPS --> B3
 	B3 -- signed HTTPS --> C
@@ -29,13 +29,16 @@ flowchart LR
 
 ### 1. MCP Layer (`internal/mcp/`)
 
-Handles the JSON-RPC 2.0 protocol over stdio:
+Handles the JSON-RPC 2.0 protocol over stdio or SSE:
 
 - **`protocol.go`** — Type definitions for JSON-RPC messages, MCP initialize/tools/ping
 - **`server.go`** — Main loop: reads stdin line by line, dispatches to handlers, writes to stdout
 - **`tools.go`** — Registers all 15 tools with input schemas, validation, and handler functions
 
-The server reads newline-delimited JSON from stdin and writes newline-delimited JSON to stdout. All logs go to stderr to keep the protocol channel clean.
+**Transport modes** (selected via `APS_MCP_TRANSPORT` environment variable):
+
+- **stdio** (default) — Reads newline-delimited JSON from stdin and writes to stdout. All logs go to stderr to keep the protocol channel clean.
+- **sse** — Starts an HTTP server with Server-Sent Events transport. Clients connect to the `/sse` endpoint and send messages to `/message`. Useful for remote or network-based MCP clients.
 
 ### 2. API Client Layer (`internal/api/`)
 
